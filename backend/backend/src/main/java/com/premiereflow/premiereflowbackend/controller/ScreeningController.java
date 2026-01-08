@@ -6,7 +6,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/screenings")
-@CrossOrigin(origins = "http://localhost:3000") // We enable this for React frontend
+@CrossOrigin(origins = "http://localhost:5173") // We enable this for React frontend
 public class ScreeningController {
 
     private final ScreeningService screeningService;
