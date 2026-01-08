@@ -54,13 +54,7 @@ public class DataSeeder implements CommandLineRunner {
                     seat.setRoom(imaxRoom);
                     seat.setRowNum(row);
                     seat.setSeatNum(seatNum);
-
-                    // Logic: Middle rows are VIP (more expensive)
-                    if (row == 3 || row == 4) {
-                        seat.setPriceModifier(1.5); // 50% extra cost
-                    } else {
-                        seat.setPriceModifier(1.0);
-                    }
+                    seat.setPriceModifier(1.0);
                     seatRepository.save(seat);
                 }
             }
