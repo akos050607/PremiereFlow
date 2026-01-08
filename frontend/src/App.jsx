@@ -1,10 +1,16 @@
 import { useEffect, useState, useRef } from 'react';
-import { Client } from '@stomp/stompjs'; // ÚJ IMPORT!
+import { Client } from '@stomp/stompjs';
 import './App.css';
+
+const generateUserId = () => 'user-' + Math.random().toString(36).substr(2, 9);
 
 function App() {
   const [screening, setScreening] = useState(null);
   const [loading, setLoading] = useState(true);
+  
+  const [myUserId] = useState(generateUserId());
+  const [activeHovers, setActiveHovers] = useState({});
+
   const stompClientRef = useRef(null);
 
   useEffect(() => {
@@ -21,41 +27,37 @@ function App() {
       });
 
     return () => {
-      if (stompClientRef.current) {
-        stompClientRef.current.deactivate();
-      }
+      if (stompClientRef.current) stompClientRef.current.deactivate();
     };
   }, []);
 
   const setupWebSocket = () => {
     const client = new Client({
       brokerURL: 'ws://localhost:8080/ws/websocket',
-      
       onConnect: () => {
-        console.log('--- WebSocket Connected ---');
+        console.log('--- WebSocket Connected as ' + myUserId + ' ---');
 
-        // Feliratkozás
         client.subscribe('/topic/seat-updates', (message) => {
           const event = JSON.parse(message.body);
           handleRealTimeUpdate(event);
         });
-      },
-      onStompError: (frame) => {
-        console.error('Broker error: ' + frame.headers['message']);
+
+        client.subscribe('/topic/seat-hover', (message) => {
+            const event = JSON.parse(message.body);
+            handleHoverUpdate(event);
+        });
       },
     });
-
     client.activate();
     stompClientRef.current = client;
   };
 
   const handleRealTimeUpdate = (event) => {
-    console.log("Update jött:", event.seatId, event.status);
     setScreening((prev) => {
       if (!prev) return prev;
       const updatedSeats = prev.seats.map((seat) => {
         if (seat.id === event.seatId) {
-            return { ...seat, status: event.status };
+            return { ...seat, status: event.status, lockedBy: event.userId };
         }
         return seat;
       });
@@ -63,13 +65,44 @@ function App() {
     });
   };
 
-  const handleSeatClick = (seat) => {
-    if (seat.status === 'RESERVED' || seat.status === 'LOCKED') return;
+  const handleHoverUpdate = (event) => {
+    setActiveHovers(prev => {
+        const newHovers = { ...prev };
+        if (event.status === 'ENTER') {
+            newHovers[event.seatId] = event.userId;
+        } else {
+            delete newHovers[event.seatId];
+        }
+        return newHovers;
+    });
+  };
 
-    if (stompClientRef.current && stompClientRef.current.connected) {
+  const sendHoverEvent = (seatId, type) => {
+    if (stompClientRef.current?.connected) {
+        stompClientRef.current.publish({
+            destination: "/app/hover-seat",
+            body: JSON.stringify({
+                seatId: seatId,
+                userId: myUserId,
+                status: type
+            })
+        });
+    }
+  };
+
+  const handleSeatClick = (seat) => {
+    if (seat.status === 'RESERVED') return;
+
+    if (seat.status === 'LOCKED' && seat.lockedBy !== myUserId) {
+        alert("Ezt a széket valaki más épp foglalja!");
+        return;
+    }
+
+    if (stompClientRef.current?.connected) {
         const payload = {
             screeningId: screening.id,
             seatId: seat.id,
+            userId: myUserId,
             status: 'LOCKED'
         };
         
@@ -81,30 +114,30 @@ function App() {
   };
 
   if (loading) return <div className="container">Loading...</div>;
-  if (!screening) return <div className="container">Error in loading the data.</div>;
 
   return (
     <div className="container">
       <h1>{screening.movieTitle}</h1>
-      <p>{screening.startTime} | {screening.roomName}</p>
       <div className="screen"></div>
       <div className="cinema-room">
-        {screening.seats.map((seat) => (
-          <div
-            key={seat.id}
-            className={`seat ${seat.status}`}
-            style={{ gridRow: seat.rowNum, gridColumn: seat.seatNum }}
-            onClick={() => handleSeatClick(seat)}
-            title={`Sor: ${seat.rowNum}, Szék: ${seat.seatNum}`}
-          >
-            {seat.seatNum}
-          </div>
-        ))}
-      </div>
-      <div className="legend">
-        <div className="legend-item"><div className="legend-box" style={{background: '#444'}}></div> Szabad</div>
-        <div className="legend-item"><div className="legend-box" style={{background: '#d32f2f'}}></div> Eladva</div>
-        <div className="legend-item"><div className="legend-box" style={{background: '#fbc02d'}}></div> Zárolt</div>
+        {screening.seats.map((seat) => {
+            const isBeingWatched = activeHovers[seat.id] && activeHovers[seat.id] !== myUserId;
+            
+            const isMyLock = seat.status === 'LOCKED' && seat.lockedBy === myUserId;
+
+            return (
+                <div
+                    key={seat.id}
+                    className={`seat ${seat.status} ${isMyLock ? 'MY-LOCK' : ''} ${isBeingWatched ? 'WATCHED' : ''}`}
+                    style={{ gridRow: seat.rowNum, gridColumn: seat.seatNum }}
+                    onClick={() => handleSeatClick(seat)}
+                    onMouseEnter={() => sendHoverEvent(seat.id, 'ENTER')}
+                    onMouseLeave={() => sendHoverEvent(seat.id, 'LEAVE')}
+                >
+                    {seat.seatNum}
+                </div>
+            );
+        })}
       </div>
     </div>
   );

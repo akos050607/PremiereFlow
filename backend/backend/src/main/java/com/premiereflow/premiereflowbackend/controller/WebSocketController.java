@@ -28,28 +28,45 @@ public class WebSocketController {
     @SendTo("/topic/seat-updates")
     @Transactional
     public SeatEvent handleSeatLock(@Payload SeatEvent event) {
-
-        System.out.println("Reserve came: Seat " + event.getSeatId());
-
         Screening screening = screeningRepository.findById(event.getScreeningId()).orElseThrow();
         Seat seat = seatRepository.findById(event.getSeatId()).orElseThrow();
 
         Optional<Ticket> existingTicket = ticketRepository.findByScreeningIdAndSeatId(event.getScreeningId(), event.getSeatId());
 
         if (existingTicket.isPresent()) {
-            if (existingTicket.get().getStatus() == SeatStatus.RESERVED) {
+            Ticket ticket = existingTicket.get();
+
+            if (ticket.getStatus() == SeatStatus.RESERVED) {
+                event.setStatus("RESERVED");
                 return event;
             }
-            Ticket ticket = existingTicket.get();
-            ticket.setStatus(SeatStatus.valueOf(event.getStatus()));
-            ticketRepository.save(ticket);
-        } else {
-            Ticket newTicket = new Ticket();
-            newTicket.setScreening(screening);
-            newTicket.setSeat(seat);
-            newTicket.setStatus(SeatStatus.valueOf(event.getStatus()));
-            ticketRepository.save(newTicket);
+
+            if (ticket.getStatus() == SeatStatus.LOCKED) {
+                if (ticket.getUserId() != null && ticket.getUserId().equals(event.getUserId())) {
+                    ticketRepository.delete(ticket);
+                    event.setStatus("FREE");
+                    event.setUserId(null);
+                    return event;
+                } else {
+                    event.setStatus("LOCKED");
+                    return event;
+                }
+            }
         }
+
+        Ticket newTicket = new Ticket();
+        newTicket.setScreening(screening);
+        newTicket.setSeat(seat);
+        newTicket.setStatus(SeatStatus.valueOf(event.getStatus()));
+        newTicket.setUserId(event.getUserId());
+        ticketRepository.save(newTicket);
+
+        return event;
+    }
+
+    @MessageMapping("/hover-seat")
+    @SendTo("/topic/seat-hover")
+    public SeatEvent handleHover(@Payload SeatEvent event) {
         return event;
     }
 }

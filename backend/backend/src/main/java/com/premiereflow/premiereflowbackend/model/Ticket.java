@@ -9,6 +9,7 @@ public class Ticket {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+    private String userId;
 
     // Which screening is this for?
     @ManyToOne
